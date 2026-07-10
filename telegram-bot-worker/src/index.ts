@@ -4,6 +4,8 @@ import { WorkerMessageSender } from './messageSender';
 import { buildWeatherReply } from './bot/replies';
 import { registerBotActionHandlers, registerHandlers } from './bot';
 import { Bot, webhookCallback } from 'grammy';
+import {getNextUpdateDateForRota} from "./getNextUpdateDateForRota";
+import {rule} from "./bot/rule";
 
 type WeatherServiceSnapshot = {
 	heatStress: string;
@@ -68,12 +70,15 @@ export default {
 	},
 
 	async scheduled(controller: ScheduledController, env: Env) {
+		console.log("Scheduled controller");
 		const db = drizzle(env.TELEGRAM_BOT_STATE);
 		const jobDate = new Date();
 
 		try {
 			// 1. Get all subscribed chat IDs for today
 			const subscribedChatIds = await getChatIDsForToday({ db });
+
+			console.log(`subscribed chatId: ${subscribedChatIds.length}`);
 
 			if (subscribedChatIds.length === 0) {
 				console.info('No subscribed chat IDs found.');
@@ -95,7 +100,7 @@ export default {
 			// 4. Build message ONCE (not per-chat)
 			const message = buildWeatherReply(readings.cda, readings.httc, {
 				jobDate,
-				isCached: new Date() < new Date(readings.cache_expiration),
+				isCached: new Date() < new Date(readings.cache_expiration)
 			});
 
 			// 5. Use WorkerMessageSender to send with rate limiting
