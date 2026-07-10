@@ -1,0 +1,78 @@
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "telegram-bot-worker",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-07-10",
+	"observability": {
+		"enabled": true
+	},
+	"upload_source_maps": true,
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"services": [
+		{
+			"binding": "WEATHER_WBGT_SERVICE",
+			"service": "weather-wbgt-service"
+			// "environment": "production" // optional
+		},
+		{
+			"binding": "WEATHER_CAT_SERVICE",
+			"service": "weather-cat-service"
+			// "environment": "production" // optional
+		}
+	],
+	"secrets": {
+		"required": [
+			"BOT_TOKEN"
+		]
+	},
+	"d1_databases": [
+		{
+			"remote": true,
+			"binding": "TELEGRAM_BOT_STATE",
+			"database_name": "telegram-bot-state",
+			"database_id": "04ccb653-40a5-42de-b455-4e8b14d8dcb0"
+		}
+	],
+	"triggers": {
+		"crons": [
+			"50 1,3,5,7 * * 1-5"
+		]
+	},
+	"vars": {
+		"BOT_INFO": "{\"id\":8876073414,\"is_bot\":true,\"first_name\":\"CDA ARMS Telegram Bot DEV\",\"username\":\"dev_cda_arms_telegram_bot\",\"can_join_groups\":true,\"can_read_all_group_messages\":false,\"supports_inline_queries\":false,\"supports_guest_queries\":false,\"can_connect_to_business\":false,\"has_main_web_app\":false,\"has_topics_enabled\":false,\"allows_users_to_create_topics\":false,\"can_manage_bots\":false,\"supports_join_request_queries\":false}"
+	}
+	/**
+	 * Smart Placement
+	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
+	 */
+	// "placement": {  "mode": "smart" }
+	/**
+	 * Bindings
+	 * Bindings allow your Worker to interact with resources on the Cloudflare Developer Platform, including
+	 * databases, object storage, AI inference, real-time communication and more.
+	 * https://developers.cloudflare.com/workers/runtime-apis/bindings/
+	 */
+	/**
+	 * Environment Variables
+	 * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
+	 * Note: Use secrets to store sensitive data.
+	 * https://developers.cloudflare.com/workers/configuration/secrets/
+	 */
+	// "vars": {  "MY_VARIABLE": "production_value" }
+	/**
+	 * Static Assets
+	 * https://developers.cloudflare.com/workers/static-assets/binding/
+	 */
+	// "assets": {  "directory": "./public/",  "binding": "ASSETS" }
+	/**
+	 * Service Bindings (communicate between multiple Workers)
+	 * https://developers.cloudflare.com/workers/wrangler/configuration/#service-bindings
+	 */
+	// "services": [  {   "binding": "MY_SERVICE",   "service": "my-service"  } ]
+}
