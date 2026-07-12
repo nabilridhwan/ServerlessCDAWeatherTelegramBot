@@ -63,7 +63,6 @@ export default {
 		const bot = new Bot(env.BOT_TOKEN, { botInfo: JSON.parse(env.BOT_INFO) });
 
 		registerBotActionHandlers(bot, db);
-		// registerAdminHandlers(bot, job, db);
 		registerHandlers(bot, db);
 
 		return webhookCallback(bot, 'cloudflare-mod')(request);
