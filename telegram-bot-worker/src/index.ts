@@ -6,6 +6,9 @@ import { registerBotActionHandlers, registerHandlers } from './bot';
 import { Bot, webhookCallback } from 'grammy';
 import {getNextUpdateDateForRota} from "./getNextUpdateDateForRota";
 import {rule} from "./bot/rule";
+import {rotaTable} from "./db/schema";
+import {and, count, eq, or} from "drizzle-orm";
+import getRotaNumberForDate from "./getRotaNumberForDate";
 
 type WeatherServiceSnapshot = {
 	heatStress: string;
@@ -52,14 +55,42 @@ export interface WeatherCatLocation {
 
 export default {
 	async fetch(request, env): Promise<Response> {
-		if (request.method === 'GET') {
+
+		if(request.method !== 'POST' && request.method !== 'GET'){
 			return Response.json({
-				status: 200,
-				message: "I'm ALIVE!",
+				error: true,
+				status: 405,
+				message: "Method not allowed",
+				date: new Date(),
 			});
 		}
 
 		const db = drizzle(env.TELEGRAM_BOT_STATE);
+
+		if (request.method === 'GET') {
+			const todayRotaNumber = getRotaNumberForDate(new Date());
+
+				const res = await db
+					.select({
+						chatId: rotaTable.telegramChatId
+					})
+					.from(rotaTable)
+					.where(or(eq(rotaTable.rota, todayRotaNumber), eq(rotaTable.rota, 0)))
+					.then((rows) => {
+						return rows.map((row) => row.chatId)
+					})
+
+			return Response.json({
+				error: false,
+				status: 200,
+				message: "Bot health ok",
+				receiverChatIds: res,
+				receiverCount: res.length,
+				rota: todayRotaNumber,
+				date: new Date(),
+			});
+		}
+
 		const bot = new Bot(env.BOT_TOKEN, { botInfo: JSON.parse(env.BOT_INFO) });
 
 		registerBotActionHandlers(bot, db);
