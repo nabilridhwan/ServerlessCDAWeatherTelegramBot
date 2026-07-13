@@ -1,6 +1,6 @@
 import { drizzle } from 'drizzle-orm/d1';
 import { rotaTable } from './schema';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, or} from 'drizzle-orm';
 import getRotaNumberForDate from '../getRotaNumberForDate';
 
 export function createDb(database: D1Database) {
@@ -40,7 +40,7 @@ export async function getChatIDsForToday({ db }: { db: Db }) {
 			telegramChatId: rotaTable.telegramChatId,
 		})
 		.from(rotaTable)
-		.where(and(eq(rotaTable.rota, todayRotaNumber), eq(rotaTable.rota, 0)));
+		.where(or(eq(rotaTable.rota, todayRotaNumber), eq(rotaTable.rota, 0)));
 
 	return data.map((row) => row.telegramChatId);
 }
