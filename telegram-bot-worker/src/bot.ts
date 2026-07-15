@@ -12,10 +12,11 @@ import { rule } from './bot/rule';
 import { Db, getRotaForChatId, removeSubscription, upsertRota } from './db/rota';
 import { getNextUpdateDateForRota } from './getNextUpdateDateForRota';
 import { Api, Bot, Context, InlineKeyboard, RawApi } from 'grammy';
-import { env } from 'cloudflare:workers';
 import { WeatherCatResponse, WeatherServiceResponse } from './index';
 import { format } from 'date-fns/format';
 import { tz } from '@date-fns/tz';
+
+type BotHandlerEnv = Pick<Env, 'WEATHER_WBGT_SERVICE' | 'WEATHER_CAT_SERVICE' | 'CF_VERSION_METADATA'>;
 
 export function formatDate(date: Date | string): string {
 	return format(new Date(date), 'd MMMM yyyy HH:mm', {
@@ -122,7 +123,7 @@ export function registerBotActionHandlers(bot: Bot<Context, Api<RawApi>>, db: Db
 
 // Registers all bot commands/actions against provided runtime instances.
 // Injecting bot here keeps handler setup explicit and decoupled from module import.
-export function registerHandlers(bot: Bot<Context, Api<RawApi>>, db: Db) {
+export function registerHandlers(bot: Bot<Context, Api<RawApi>>, db: Db, runtimeEnv: BotHandlerEnv) {
 	// ==============================
 	// #region Bot command and action handlers
 	// ==============================
@@ -135,7 +136,11 @@ export function registerHandlers(bot: Bot<Context, Api<RawApi>>, db: Db) {
 		}
 
 		console.log(
-			`Start command called by Chat ID: ${ctx.chat.id}. Next update at ${new Date(rule.nextInvocationDate(new Date())).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' })}`,
+			JSON.stringify({
+				event: 'bot_command_start',
+				chatId: ctx.chat.id,
+				nextUpdateAt: new Date(rule.nextInvocationDate(new Date())).toISOString(),
+			}),
 		);
 
 		const subscriptionRota = await getRotaForChatId({
@@ -143,7 +148,7 @@ export function registerHandlers(bot: Bot<Context, Api<RawApi>>, db: Db) {
 			db,
 		});
 
-		const rotaNumber= subscriptionRota;
+		const rotaNumber = subscriptionRota;
 		const hasSubscribedToAnyChat = rotaNumber !== null;
 
 		if (hasSubscribedToAnyChat) {
@@ -153,7 +158,12 @@ export function registerHandlers(bot: Bot<Context, Api<RawApi>>, db: Db) {
 
 			await ctx.reply(msg, { parse_mode: 'HTML' });
 
-			console.log('Chat ID: ' + ctx.chat.id + ' is already subscribed. No action taken.');
+			console.log(
+				JSON.stringify({
+					event: 'bot_already_subscribed',
+					chatId: ctx.chat.id,
+				}),
+			);
 			return;
 		}
 
@@ -178,11 +188,18 @@ export function registerHandlers(bot: Bot<Context, Api<RawApi>>, db: Db) {
 			return;
 		}
 
-		console.log('Weather command called by user: ' + ctx.from?.username + ' (ID: ' + ctx.from?.id + ') in chat ID: ' + ctx.chat.id);
+		console.log(
+			JSON.stringify({
+				event: 'bot_command_weather',
+				username: ctx.from?.username,
+				userId: ctx.from?.id,
+				chatId: ctx.chat.id,
+			}),
+		);
 
 		const loadingMessage = await ctx.reply(LOADING_MESSAGE);
 
-		const weatherResponse = await env.WEATHER_WBGT_SERVICE.fetch('https://weather-wbgt-service/');
+		const weatherResponse = await runtimeEnv.WEATHER_WBGT_SERVICE.fetch('https://weather-wbgt-service/');
 		if (!weatherResponse.ok) {
 			throw new Error(`Weather service request failed with status ${weatherResponse.status}`);
 		}
@@ -204,16 +221,28 @@ export function registerHandlers(bot: Bot<Context, Api<RawApi>>, db: Db) {
 		});
 
 		console.log(
-			'Processed on-demand weather data for user: ' + ctx.from?.username + ' (ID: ' + ctx.from?.id + ') in chat ID: ' + ctx.chat.id,
+			JSON.stringify({
+				event: 'bot_command_weather_processed',
+				username: ctx.from?.username,
+				userId: ctx.from?.id,
+				chatId: ctx.chat.id,
+			}),
 		);
 	});
 
 	bot.command('catstatus', async (ctx) => {
-		console.log('CAT status command called by user: ' + ctx.from?.username + ' (ID: ' + ctx.from?.id + ') in chat ID: ' + ctx.chat.id);
+		console.log(
+			JSON.stringify({
+				event: 'bot_command_catstatus',
+				username: ctx.from?.username,
+				userId: ctx.from?.id,
+				chatId: ctx.chat?.id,
+			}),
+		);
 
 		const loadingMessage = await ctx.reply(LOADING_MESSAGE);
 
-		const weatherCATResponse = await env.WEATHER_CAT_SERVICE.fetch('https://weather-cat-service/');
+		const weatherCATResponse = await runtimeEnv.WEATHER_CAT_SERVICE.fetch('https://weather-cat-service/');
 		if (!weatherCATResponse.ok) {
 			throw new Error(`Weather service request failed with status ${weatherCATResponse.status}`);
 		}
@@ -244,7 +273,12 @@ Info last updated: ${formatDate(new Date(cda.update_on)) ?? 'N/A'}
 				parse_mode: 'HTML',
 			});
 		} catch (error) {
-			console.log(error);
+			console.error(
+				JSON.stringify({
+					event: 'bot_command_catstatus_failed',
+					error: error instanceof Error ? error.message : String(error),
+				}),
+			);
 
 			const message = `There was an error getting the CAT Status. Please try again later.
 
@@ -291,20 +325,20 @@ Info last updated: ${formatDate(new Date(cda.update_on)) ?? 'N/A'}
 		// });
 	});
 
-	bot.command("about", async (ctx: Context) => {
-
-		const {tag, id, timestamp} = env.CF_VERSION_METADATA
-		await ctx.reply(`🤖 <b>CDA ARMS Weather Bot</b>
+	bot.command('about', async (ctx: Context) => {
+		const { tag, id, timestamp } = runtimeEnv.CF_VERSION_METADATA;
+		await ctx.reply(
+			`🤖 <b>CDA ARMS Weather Bot</b>
 Deployment Tag: <code>${tag || 'No tag found'}</code>
 Deployment ID: <code>${id || 'No id found'}</code>
-Deployment short ID: <code>${id.split("-")[0] || 'No short id found'}</code>
+Deployment short ID: <code>${id.split('-')[0] || 'No short id found'}</code>
 Timestamp: <code>${formatDate(new Date(timestamp).toISOString())}</code>
 `,
 			{
-				parse_mode: 'HTML'
-			}
-)
-	})
+				parse_mode: 'HTML',
+			},
+		);
+	});
 
 	// Help
 	bot.command('help', async (ctx: Context) => {
