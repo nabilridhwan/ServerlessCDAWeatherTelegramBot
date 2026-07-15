@@ -26,7 +26,9 @@ pnpm install
 
 ## Environment Variables and Secrets
 
-Local `.env` files are used for local development and tooling. Production secrets are stored in Cloudflare with `wrangler secret put`.
+Local `.env` and `.dev.vars` files are used for local development and tooling. Deployed Worker secrets are stored in Cloudflare with `wrangler secret put`.
+
+Do not store sensitive values in `wrangler.jsonc`. Use Wrangler secrets for deployed Workers and keep local secret files out of git.
 
 ### `telegram-bot-worker`
 
@@ -38,29 +40,53 @@ CLOUDFLARE_DATABASE_ID=
 CLOUDFLARE_D1_TOKEN=
 ```
 
-Store the Telegram bot token as a Cloudflare Worker secret:
+Create `telegram-bot-worker/.dev.vars` for local bot development:
+
+```bash
+BOT_TOKEN=
+```
+
+Store the development/default Worker Telegram bot token in Cloudflare with Wrangler:
 
 ```bash
 cd telegram-bot-worker
 wrangler secret put BOT_TOKEN
 ```
 
+Store the production Telegram bot token in the `production` environment:
+
+```bash
+cd telegram-bot-worker
+wrangler secret put BOT_TOKEN --env production
+```
+
+Wrangler prompts for the secret value. Do not pass the token directly in the command.
+
 `BOT_INFO` is a non-secret Worker variable stored in `telegram-bot-worker/wrangler.jsonc`.
 
 ### `weather-wbgt-service`
 
-Create `weather-wbgt-service/.env` from `weather-wbgt-service/.env.example` for local development:
+Create `weather-wbgt-service/.dev.vars` or `weather-wbgt-service/.env` from `weather-wbgt-service/.env.example` for local development:
 
 ```bash
 DATA_GOV_API_KEY=
 ```
 
-Store the same API key as a Cloudflare Worker secret:
+Store the deployed WBGT API key in Cloudflare with Wrangler:
 
 ```bash
 cd weather-wbgt-service
 wrangler secret put DATA_GOV_API_KEY
 ```
+
+If a `production` environment is added to `weather-wbgt-service/wrangler.jsonc`, set its production secret with:
+
+```bash
+cd weather-wbgt-service
+wrangler secret put DATA_GOV_API_KEY --env production
+```
+
+Wrangler prompts for the secret value. Do not pass the API key directly in the command.
 
 ### `weather-cat-service`
 
