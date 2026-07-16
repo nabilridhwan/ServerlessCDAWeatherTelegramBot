@@ -215,7 +215,7 @@ export const rotaTable = sqliteTable('rota', {
 });
 
 // Query with Drizzle
-const db = drizzle(env.TELEGRAM_BOT_STATE);
+const db = drizzle(env.telegram_bot_state);
 await db.insert(rotaTable).values({ telegramChatId: 123, rota: '1' }).onConflictDoUpdate(...);
 ```
 

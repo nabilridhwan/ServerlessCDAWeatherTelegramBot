@@ -4,6 +4,7 @@
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
+	"account_id": "2443a84b081127532e928dfa3f4e37ca",
 	"name": "weather-wbgt-service",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-07-10",
@@ -33,7 +34,7 @@
 	"kv_namespaces": [
 		{
 			"binding": "WEATHER_CACHE",
-			"id": "83d052c2c857435b94a6a348f85a5519"
+			"id": "305e978b70a2447ab87745e37a50e691"
 		}
 	],
 	"secrets": {

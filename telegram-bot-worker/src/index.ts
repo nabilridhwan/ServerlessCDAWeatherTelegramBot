@@ -1,11 +1,11 @@
-import { drizzle } from 'drizzle-orm/d1';
-import { getChatIDsForToday } from './db/rota';
-import { WorkerMessageSender } from './messageSender';
-import { buildWeatherReply } from './bot/replies';
-import { registerBotActionHandlers, registerHandlers } from './bot';
-import { Bot, webhookCallback } from 'grammy';
-import { rotaTable } from './db/schema';
-import { count, eq, or } from 'drizzle-orm';
+import {drizzle} from 'drizzle-orm/d1';
+import {getChatIDsForToday} from './db/rota';
+import {WorkerMessageSender} from './messageSender';
+import {buildWeatherReply} from './bot/replies';
+import {registerBotActionHandlers, registerHandlers} from './bot';
+import {Bot, webhookCallback} from 'grammy';
+import {rotaTable} from './db/schema';
+import {count, eq, or} from 'drizzle-orm';
 import getRotaNumberForDate from './getRotaNumberForDate';
 
 type WeatherServiceSnapshot = {
@@ -85,7 +85,7 @@ export default {
 		}
 
 		// Create a new DB instance
-		const db = drizzle(env.TELEGRAM_BOT_STATE);
+		const db = drizzle(env.telegram_bot_state);
 
 		if (request.method === 'GET') {
 			const { tag, id, timestamp } = env.CF_VERSION_METADATA;
@@ -127,7 +127,7 @@ export default {
 			cron: controller.cron,
 			scheduledTime: new Date(controller.scheduledTime).toISOString(),
 		});
-		const db = drizzle(env.TELEGRAM_BOT_STATE);
+		const db = drizzle(env.telegram_bot_state);
 		const jobDate = new Date();
 
 		try {

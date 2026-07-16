@@ -4,6 +4,7 @@
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
+	"account_id": "2443a84b081127532e928dfa3f4e37ca",
 	"name": "telegram-bot-worker",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-07-10",
@@ -50,9 +51,9 @@
 			"d1_databases": [
 				{
 					"remote": true,
-					"binding": "TELEGRAM_BOT_STATE",
+					"binding": "telegram_bot_state",
 					"database_name": "telegram-bot-state",
-					"database_id": "04ccb653-40a5-42de-b455-4e8b14d8dcb0"
+					"database_id": "3ec8fcdc-6985-40e1-89bd-2ce8c2a08b9c"
 				}
 			]
 		}
@@ -75,9 +76,9 @@
 	"d1_databases": [
 		{
 			"remote": true,
-			"binding": "TELEGRAM_BOT_STATE",
+			"binding": "telegram_bot_state",
 			"database_name": "telegram-bot-state",
-			"database_id": "04ccb653-40a5-42de-b455-4e8b14d8dcb0"
+			"database_id": "3ec8fcdc-6985-40e1-89bd-2ce8c2a08b9c"
 		}
 	],
 	"triggers": {
