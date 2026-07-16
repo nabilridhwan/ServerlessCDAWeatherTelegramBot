@@ -4,7 +4,6 @@ import {
 	buildSettingsMessages,
 	buildWeatherReply,
 	HELP_MESSAGE,
-	LOADING_MESSAGE,
 	STOP_SUCCESS_MESSAGE,
 	WELCOME_SUBSCRIBED_MESSAGE,
 } from './bot/replies';
@@ -197,37 +196,45 @@ export function registerHandlers(bot: Bot<Context, Api<RawApi>>, db: Db, runtime
 			}),
 		);
 
-		const loadingMessage = await ctx.reply(LOADING_MESSAGE);
+		try {
+			const weatherResponse = await runtimeEnv.WEATHER_WBGT_SERVICE.fetch('https://weather-wbgt-service/');
+			if (!weatherResponse.ok) {
+				throw new Error(`Weather service request failed with status ${weatherResponse.status}`);
+			}
+			const readings = (await weatherResponse.json()) as WeatherServiceResponse;
 
-		const weatherResponse = await runtimeEnv.WEATHER_WBGT_SERVICE.fetch('https://weather-wbgt-service/');
-		if (!weatherResponse.ok) {
-			throw new Error(`Weather service request failed with status ${weatherResponse.status}`);
+			const message = buildWeatherReply(readings.cda, readings.httc, {
+				jobDate: new Date(),
+				isCached: new Date() < new Date(readings.cache_expiration),
+			});
+
+			await ctx.reply(message, {
+				parse_mode: 'HTML',
+			});
+
+			console.log(
+				JSON.stringify({
+					event: 'bot_command_weather_processed',
+					username: ctx.from?.username,
+					userId: ctx.from?.id,
+					chatId: ctx.chat.id,
+				}),
+			);
+		} catch (error) {
+			console.error(
+				JSON.stringify({
+					event: 'bot_command_weather_failed',
+					error: error instanceof Error ? error.message : String(error),
+					username: ctx.from?.username,
+					userId: ctx.from?.id,
+					chatId: ctx.chat.id,
+				}),
+			);
+
+			await ctx.reply(`Weather is unavailable as of 16 July 2026. We're working on a fix. Sorry for any inconvenience caused!`, {
+				parse_mode: 'HTML',
+			});
 		}
-		const readings = (await weatherResponse.json()) as WeatherServiceResponse;
-
-		// 4. Build message ONCE (not per-chat)
-		const message = buildWeatherReply(readings.cda, readings.httc, {
-			jobDate: new Date(),
-			isCached: new Date() < new Date(readings.cache_expiration),
-		});
-
-		// await MessageQueue.sendWeatherMessages(bot, [ctx.chat.id], {
-		// 	jobDate: new Date(),
-		// 	editMessageId: loadingMessage.message_id,
-		// });
-		// throw new Error('Not implemented');
-		await ctx.api.editMessageText(ctx.chat.id, loadingMessage.message_id, message, {
-			parse_mode: 'HTML',
-		});
-
-		console.log(
-			JSON.stringify({
-				event: 'bot_command_weather_processed',
-				username: ctx.from?.username,
-				userId: ctx.from?.id,
-				chatId: ctx.chat.id,
-			}),
-		);
 	});
 
 	bot.command('catstatus', async (ctx) => {
