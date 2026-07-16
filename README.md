@@ -1,4 +1,4 @@
-# CDA ARMS Weather Bot Serverless
+# CDA ARMS Weather Bot
 
 A Cloudflare Workers monorepo for a Telegram bot that sends Singapore weather and activity restriction updates to subscribed chats.
 
@@ -26,7 +26,7 @@ pnpm install
 
 ## Environment Variables and Secrets
 
-Local `.env` and `.dev.vars` files are used for local development and tooling. Deployed Worker secrets are stored in Cloudflare with `wrangler secret put`.
+Each service has a `.env.example` file. Copy the relevant example to `.env` for local tooling or `.dev.vars` for local Wrangler runtime secrets. Deployed Worker secrets are stored in Cloudflare with `wrangler secret put`.
 
 Do not store sensitive values in `wrangler.jsonc`. Use Wrangler secrets for deployed Workers and keep local secret files out of git.
 
@@ -45,6 +45,8 @@ Create `telegram-bot-worker/.dev.vars` for local bot development:
 ```bash
 BOT_TOKEN=
 ```
+
+`telegram-bot-worker/.env.example` includes both sets of variables for discoverability. Keep real values in local ignored files only.
 
 Store the development/default Worker Telegram bot token in Cloudflare with Wrangler:
 
@@ -90,7 +92,7 @@ Wrangler prompts for the secret value. Do not pass the API key directly in the c
 
 ### `weather-cat-service`
 
-No secret environment variables are currently required.
+No secret environment variables are currently required. `weather-cat-service/.env.example` exists as a placeholder so every service has a handover template.
 
 ### Cloudflare Bindings
 

@@ -1,291 +1,204 @@
 # CDA ARMS Weather Bot Serverless - AI Agent Guide
 
-**Cloudflare Workers** + **Telegram Bot API** + **Weather Data** monorepo. Use this guide to understand architecture, workflows, and project-specific patterns.
+Cloudflare Workers + Telegram Bot API + Singapore weather data monorepo. Read this guide before editing the project, and read current Cloudflare Workers docs from the skill library before Workers, KV, D1, service binding, or Wrangler tasks.
 
-> **First read:** Cloudflare Workers documentation is in your skill library - always retrieve current docs before Workers, KV, D1, or service binding tasks.
+## Current State
 
-## Architecture Overview
+Three independent Workers are deployed together:
 
-Three independent Cloudflare Workers deployed together:
+| Service | Role | Runtime bindings | Secrets |
+|---------|------|------------------|---------|
+| `telegram-bot-worker` | Telegram webhook, bot commands, D1 subscription state, and scheduled broadcasts | `telegram_bot_state` D1, `WEATHER_WBGT_SERVICE`, `WEATHER_CAT_SERVICE`, `CF_VERSION_METADATA`, `BOT_INFO` var | `BOT_TOKEN` |
+| `weather-wbgt-service` | Fetches WBGT and air temperature from data.gov.sg, then caches results | `WEATHER_CACHE` KV | `DATA_GOV_API_KEY` |
+| `weather-cat-service` | Fetches CAT/activity restriction data, then caches results | `WEATHER_CACHE` KV | None currently |
 
-| Service | Role | Bindings | Triggers |
-|---------|------|----------|----------|
-| **telegram-bot-worker** | Main bot; handles user commands, subscriptions, scheduled broadcasts | D1 (rota DB), KV cache, service bindings → weather services | Webhook (Telegram), Cron (2-hourly broadcasts) |
-| **weather-wbgt-service** | Fetches heat stress (WBGT) from data.gov.sg API | KV cache, DATA_GOV_API_KEY secret | Only called via service binding |
-| **weather-cat-service** | Fetches CAT status (activity restrictions) | KV cache, secrets | Only called via service binding |
+The Telegram worker calls the weather workers through Cloudflare service bindings. The weather workers are not intended to be public user-facing APIs.
 
-### Data Flow
-
-```
-User command (/weather, /catstatus)
-    ↓
-telegram-bot-worker (fetch handler)
-    ├→ Calls weather service via binding
-    ├→ Parses response
-    └→ Sends formatted HTML reply via Telegram API
-
-Scheduled cron (every 2 hours, see wrangler.jsonc)
-    ↓
-telegram-bot-worker (scheduled handler)
-    ├→ Fetches subscribed chat IDs from D1 rota table
-    ├→ Calls weather service once (cached by KV)
-    ├→ Builds HTML message once
-    ├→ WorkerMessageSender rate-limits sends (100ms stagger)
-    └→ Logs success/failures to Cloudflare Logs
-```
+The current scheduled broadcast cron is `50 1,3,5,7 * * 1-5`, configured in `telegram-bot-worker/wrangler.jsonc`.
 
 ## Project Layout
 
-```
+```text
 telegram-bot-worker/
-  ├─ src/index.ts           # fetch + scheduled handlers; type defs for weather responses
-  ├─ src/bot.ts             # grammY command/callback handlers (/start, /weather, /settings, etc.)
-  ├─ src/messageSender.ts   # WorkerMessageSender: rate limiting + retry logic (KEY FILE)
-  ├─ src/db/               # Drizzle ORM schema + queries
-  │  ├─ schema.ts          # rotaTable (chat_id → rota assignment)
-  │  └─ rota.ts            # upsertRota, getChatIDsForToday, getRotaForChatId
-  ├─ src/bot/replies.ts    # Template strings + HTML formatters
-  ├─ src/getRotaNumberForDate.ts  # Calculates which rota (1/2/3) is active today
-  ├─ wrangler.jsonc        # D1, KV cache, service bindings, cron triggers
-  └─ package.json          # grammY, drizzle-orm, wrangler
+  src/index.ts                  # fetch + scheduled handlers; Env response types
+  src/bot.ts                    # grammY commands and callbacks
+  src/messageSender.ts          # WorkerMessageSender rate limiting + retries
+  src/db/schema.ts              # Drizzle rota table
+  src/db/rota.ts                # Rota queries and upserts
+  src/bot/replies.ts            # HTML reply templates and formatters
+  src/getRotaNumberForDate.ts   # 3-day rota calculation
+  drizzle.config.ts             # D1 HTTP config, reads .env
+  wrangler.jsonc                # D1, service bindings, cron, production env
+  .env.example                  # Drizzle + local BOT_TOKEN template
 
-weather-{wbgt,cat}-service/
-  ├─ src/index.ts          # fetch handler; KV cache check → fetch → serialize → cache
-  ├─ src/weather.api.ts    # Calls data.gov.sg API; maps responses
-  ├─ src/catStatus.api.ts  # Calls CAT API; parses statuses + emojis
-  └─ wrangler.jsonc        # KV binding, secrets, no service bindings (only called)
+weather-wbgt-service/
+  src/index.ts                  # cache check, API fetch, response shaping
+  src/weather.api.ts            # data.gov.sg API mapping
+  src/getNextTTLForCurrentQuarterHour.ts
+  wrangler.jsonc                # KV binding + DATA_GOV_API_KEY requirement
+  .env.example                  # DATA_GOV_API_KEY template
+
+weather-cat-service/
+  src/index.ts                  # cache check, CAT API fetch, response shaping
+  src/catStatus.api.ts          # CAT API mapping and status parsing
+  wrangler.jsonc                # KV binding
+  .env.example                  # Placeholder; no secrets currently required
 ```
 
-## Critical Workflows & Commands
+## Data Flow
 
-### Local Development (Any Service)
+```text
+Telegram command (/weather, /catstatus, /about, /settings)
+    -> telegram-bot-worker
+    -> optional service binding call to weather worker
+    -> formatted Telegram HTML reply
+
+Scheduled cron
+    -> telegram-bot-worker scheduled handler
+    -> D1 lookup for chats subscribed for today's rota
+    -> weather-wbgt-service fetch through service binding
+    -> WorkerMessageSender sends staggered Telegram messages
+```
+
+Note: `/catstatus` is currently disabled in `telegram-bot-worker/src/bot.ts` and replies that CAT status is unavailable as of 16 July 2026. The CAT service still exists and can fetch/cache CAT data.
+
+## Commands
+
+Use `pnpm`.
 
 ```bash
-cd telegram-bot-worker  # or weather-*-service
-npm run dev
+pnpm install
 ```
 
-- **Webhook testing:** POST to `http://localhost:8787/` with Telegram message JSON
-- **Cron testing:** `curl "http://localhost:8787/__scheduled?cron=*"`
-- **Service bindings work locally** - wrangler automatically starts all workers
-
-### Deployment
+Run a service locally:
 
 ```bash
 cd telegram-bot-worker
-npm run deploy
+pnpm run dev
 ```
 
-- Deploys **one service** to Cloudflare account
-- See `.github/workflows` for multi-service CI/CD (if using)
-- **After changing wrangler.jsonc:** Run `npm run cf-typegen` to regenerate `Env` types
-
-### After Wrangler Config Changes
+Wrangler starts service-bound workers locally when running the Telegram worker. Test the webhook at `http://localhost:8787/` and trigger scheduled jobs with:
 
 ```bash
-npm run cf-typegen  # Regenerate Env interface from wrangler.jsonc bindings
+curl "http://localhost:8787/__scheduled?cron=*"
 ```
 
-Required after adding D1 databases, KV namespaces, secrets, service bindings, etc.
-
-### Debugging Scheduled Jobs
+Run tests from a service directory that has a `test` script:
 
 ```bash
-wrangler tail  # Real-time Worker logs (production)
-# Local: see terminal output when running `npm run dev`
+pnpm run test
 ```
 
-### Secrets Management
+`telegram-bot-worker` and `weather-cat-service` currently have Vitest scripts; `weather-wbgt-service` does not.
+
+Regenerate Worker types after any `wrangler.jsonc` binding/config change:
 
 ```bash
-# Set Telegram bot token
+pnpm run cf-typegen
+```
+
+Deploy services in dependency order:
+
+```bash
+cd weather-cat-service
+pnpm run deploy
+
+cd ../weather-wbgt-service
+pnpm run deploy
+
+cd ../telegram-bot-worker
+pnpm run deploy
+```
+
+`telegram-bot-worker` deploys with `wrangler deploy -e production`; the weather services deploy their default environments.
+
+## Environment And Secrets
+
+Every service has a `.env.example`.
+
+- `telegram-bot-worker/.env.example`: includes `BOT_TOKEN` for local `.dev.vars`, plus `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_DATABASE_ID`, and `CLOUDFLARE_D1_TOKEN` for Drizzle D1 commands.
+- `weather-wbgt-service/.env.example`: includes `DATA_GOV_API_KEY`.
+- `weather-cat-service/.env.example`: placeholder because no local secrets are currently required.
+
+Local runtime secrets belong in `.dev.vars`. Drizzle reads `telegram-bot-worker/.env`. Deployed secrets are per service and per environment:
+
+```bash
+cd telegram-bot-worker
 wrangler secret put BOT_TOKEN
+wrangler secret put BOT_TOKEN --env production
 
-# Set weather data.gov.sg API key
-cd weather-wbgt-service
+cd ../weather-wbgt-service
 wrangler secret put DATA_GOV_API_KEY
 ```
 
-Secrets are **per-service** and **per-environment** (staging/production).
+Wrangler prompts for secret values. Do not put secrets in commands, `wrangler.jsonc`, or committed files.
 
-## Project-Specific Patterns
+## Important Patterns
 
-### 1. **Service-to-Service Communication via Bindings**
+- Telegram replies use `parse_mode: 'HTML'`; keep generated text valid for Telegram's HTML subset.
+- Scheduled messages use `WorkerMessageSender`, which staggers sends and retries transient Telegram/network failures.
+- Rota subscriptions are stored in D1 in `rotaTable`; one Telegram chat ID maps to one rota value: `1`, `2`, `3`, or `OFFICE_HOURS`.
+- The rota reference date is in `telegram-bot-worker/src/getRotaNumberForDate.ts`; update it if the operational rota changes.
+- User-facing dates are formatted for `Asia/Singapore`.
+- WBGT cache key is currently `WGBT_DATA` in code, with a TTL based on the next quarter-hour plus buffer. CAT cache key is `CAT_DATA`, TTL 5 minutes.
+- `BOT_INFO` is a non-secret Wrangler variable. Development and production values differ in `telegram-bot-worker/wrangler.jsonc`.
 
-Workers call each other using Cloudflare service bindings—**no HTTP overhead, same zone.**
+## Handover
 
-```typescript
-// telegram-bot-worker calls weather service
-const response = await env.WEATHER_WBGT_SERVICE.fetch('https://weather-wbgt-service/');
-const data = await response.json() as WeatherServiceResponse;
-```
+Use this checklist when moving production to a new Cloudflare account while keeping the same Telegram bot.
 
-**Key:** Bindings defined in `wrangler.jsonc` under `services`.  
-**Why:** Reduces latency, avoids public HTTP roundtrips, keeps traffic within Cloudflare.
+1. Create a Cloudflare account for the new owner or operations team.
+2. From the Cloudflare dashboard, create the D1 database and Workers KV namespace using the names and bindings found in each service's `wrangler.jsonc` file.
+3. Update the new D1 `database_id` in `telegram-bot-worker/wrangler.jsonc`.
+4. Update the new KV namespace `id` in `weather-wbgt-service/wrangler.jsonc` and `weather-cat-service/wrangler.jsonc`.
+5. Fill in each `.env.example` file and copy it to the appropriate ignored local file: `.env` for Drizzle/tooling, `.dev.vars` for local Wrangler runtime secrets.
+6. Use Drizzle Kit with Cloudflare D1 HTTP integration to push the database schema before migrating production data. See https://orm.drizzle.team/docs/guides/d1-http-with-drizzle-kit.
 
-### 2. **Rate Limiting & Retries (WorkerMessageSender)**
-
-Custom class in `src/messageSender.ts` replaces external queue libraries (avoids Worker timeouts).
-
-```typescript
-const sender = new WorkerMessageSender(bot);
-await sender.sendToMultiple(chatIds, message);  // Auto-staggers sends 100ms apart
-```
-
-**Features:**
-- 100ms stagger between sends (respects Telegram ~30-40 msgs/sec limit)
-- Exponential backoff on failures (max 3 retries)
-- Handles Telegram 429 (rate limit) + 5xx + network errors
-- Logs all failures (grep logs for debugging)
-
-**Customize:** Edit `RATE_LIMIT_MS` and `MAX_RETRIES` in `messageSender.ts`.
-
-### 3. **Subscription Model: Rotas + Office Hours**
-
-Users subscribe to one of **four schedules:**
-- **Rota 1, 2, 3:** Rotating 3-day cycles (calculated by `getRotaNumberForDate`)
-- **Office Hours:** Fixed daily schedule
-
-D1 `rotaTable` stores one chat ID → one rota mapping.
-
-```typescript
-// telegram-bot-worker fires cron every 2 hours
-const subscribedChatIds = await getChatIDsForToday({ db });  // Returns chats whose rota matches today
-```
-
-**Reference date:** `2025-10-06` (see `getRotaNumberForDate.ts`). If you change rotas, update this date.
-
-### 4. **KV Caching for External APIs**
-
-Both weather services check KV before calling external APIs:
-
-```typescript
-const cached = await env.WEATHER_CACHE.get('WBGT_DATA');
-if (cached) return Response.json(JSON.parse(cached));
-
-// Otherwise fetch + cache
-const data = await Weather.retrieveWeatherDataForBot(apiKey);
-await env.WEATHER_CACHE.put('WBGT_DATA', JSON.stringify(data), { expirationTtl: 180 });
-```
-
-**Cache keys:** `'WBGT_DATA'` (180s TTL) and `'CAT_DATA'` (300s TTL).  
-**Important:** Both services share the same KV namespace (see wrangler.jsonc).
-
-### 5. **Timezone-Aware Operations**
-
-All user-facing dates use Singapore timezone (`Asia/Singapore`):
-
-```typescript
-import { tz } from '@date-fns/tz';
-const formatted = format(new Date(dateStr), 'd MMMM yyyy HH:mm', { in: tz('Asia/Singapore') });
-```
-
-### 6. **Cron Expression for Scheduled Messages**
-
-Defined in `telegram-bot-worker/wrangler.jsonc`:
-
-```jsonc
-"triggers": {
-  "crons": ["50 1,3,5,7 * * 1-5"]  // 1:50 AM, 3:50 AM, 5:50 AM, 7:50 AM on weekdays
-}
-```
-
-Change to `"0 */2 * * *"` for every 2 hours, or `"0 8,14 * * *"` for 8 AM + 2 PM.
-
-### 7. **HTML Parsing in Telegram Messages**
-
-All bot replies use `parse_mode: 'HTML'`:
-
-```typescript
-await ctx.reply(message, { parse_mode: 'HTML' });
-// Supports <b>bold</b>, <i>italic</i>, <code>code</code>, <a href="url">link</a>
-```
-
-See `src/bot/replies.ts` for message templates (emojis, colors, status indicators).
-
-### 8. **D1 with Drizzle ORM**
-
-Schema-driven SQLite: define once, generate migrations with `drizzle-kit`.
-
-```typescript
-// Define in schema.ts
-export const rotaTable = sqliteTable('rota', {
-  telegramChatId: int().notNull().unique(),
-  rota: text({ enum: ['1', '2', '3', 'OFFICE_HOURS'] }).notNull(),
-});
-
-// Query with Drizzle
-const db = drizzle(env.telegram_bot_state);
-await db.insert(rotaTable).values({ telegramChatId: 123, rota: '1' }).onConflictDoUpdate(...);
-```
-
-**Key:** D1 bindings + schema defined in wrangler.jsonc. Run migrations with `wrangler d1 migrations create` (if needed).
-
-## Common Tasks for Agents
-
-### Add a New Bot Command
-
-1. Edit `src/bot.ts` → `registerHandlers()`
-2. Add `bot.command('name', async (ctx) => { ... })`
-3. Use service bindings to fetch data: `env.WEATHER_WBGT_SERVICE.fetch(...)`
-4. Reply with `ctx.reply(message, { parse_mode: 'HTML' })`
-
-### Change Broadcast Schedule
-
-Edit `telegram-bot-worker/wrangler.jsonc` → `triggers.crons`, then `npm run deploy`.
-
-### Debug Cron Executions
+Export from the old Cloudflare account:
 
 ```bash
-wrangler tail --service telegram-bot-worker  # Filter logs
+cd telegram-bot-worker
+pnpm wrangler d1 export telegram-bot-state --remote --output ../telegram-bot-state-export.sql
 ```
 
-Look for `"Scheduled job triggered"` logs or `"Failed to send message"` errors.
-
-### Scale to Millions of Users
-
-Current `WorkerMessageSender` staggers sends via 100ms delays. For 1M+ chats:
-- Migrate to **Cloudflare Queues** (see SETUP.md "Option B")
-- Create a consumer Worker that drains the queue
-- Reduces cron handler CPU time (fire-and-forget queueing)
-
-## Testing
+Log in to the new Cloudflare account:
 
 ```bash
-npm run test  # Runs vitest with Cloudflare pool
+pnpm wrangler login
 ```
 
-Tests use `@cloudflare/vitest-pool-workers` to simulate Worker environment locally.
+After the new D1 database exists, import the exported SQL:
 
-## External APIs & Secrets
+```bash
+cd telegram-bot-worker
+pnpm wrangler d1 execute telegram-bot-state --remote --file ../telegram-bot-state-export.sql
+```
 
-| Service | API | Endpoint | Caching |
-|---------|-----|----------|---------|
-| Weather (WBGT) | data.gov.sg | `https://api.data.gov.sg/...` | 180s KV |
-| CAT Status | Internal | Varies | 300s KV |
-| Telegram | grammY wrapper | `https://api.telegram.org` | None (via grammY) |
+Use a short maintenance window for export/import so subscription changes do not land in the old database after export. After cutover, disable the old Cloudflare Worker cron or deployment so the old Worker cannot send scheduled Telegram messages.
 
-All external calls use **exponential backoff + timeouts** in `WorkerMessageSender`.
+Deploy all three services in the order shown above. Wrangler may prompt that required secrets are missing; set them, then deploy again in the same order.
+
+Set the Telegram webhook to the production Worker URL:
+
+```text
+https://api.telegram.org/bot<BOT_TOKEN>/setWebhook?url=https://telegram-bot-worker-production.opsroomcda.workers.dev/
+```
+
+Test the Telegram bot by running `/about`. The reply should show the latest deployment ID from `CF_VERSION_METADATA`.
 
 ## Observability
 
-- **Logs:** `wrangler tail` or Cloudflare dashboard
-- **KV metrics:** Dashboard → Workers → your worker → Real-time analytics
-- **D1 logs:** Dashboard → D1 → Logs tab
-- **Errors:** https://developers.cloudflare.com/workers/observability/errors/
-
-Set up alerts on:
-- Message send failure rate > 10% per cron run
-- D1 query timeouts (slow subscription lookup)
-- Cron not firing for > 4 hours
+- Use `wrangler tail` or the Cloudflare dashboard for Worker logs.
+- Watch for `"Scheduled job triggered"` and `"Failed to send message"` in Telegram worker logs.
+- Monitor KV and D1 from the Cloudflare dashboard.
+- Consider alerts for high scheduled-send failure rates, D1 query timeouts, and cron silence for more than 4 hours.
 
 ## References
 
-- **Cloudflare Workers:** https://developers.cloudflare.com/workers/
-- **grammY Telegram Bot:** https://grammy.dev/
-- **Drizzle ORM:** https://orm.drizzle.team/
-- **Cron Expressions:** https://crontab.guru/ (validate schedules here)
-- **D1 Docs:** https://developers.cloudflare.com/d1/
-- **KV Docs:** https://developers.cloudflare.com/kv/
-- **Service Bindings:** https://developers.cloudflare.com/workers/runtime-apis/service-bindings/
-
+- Cloudflare Workers: https://developers.cloudflare.com/workers/
+- D1: https://developers.cloudflare.com/d1/
+- KV: https://developers.cloudflare.com/kv/
+- Service bindings: https://developers.cloudflare.com/workers/runtime-apis/service-bindings/
+- grammY: https://grammy.dev/
+- Drizzle ORM: https://orm.drizzle.team/
+- Cron expressions: https://crontab.guru/
