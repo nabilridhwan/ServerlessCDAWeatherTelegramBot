@@ -26,6 +26,8 @@ export type WeatherServiceResponse = {
 };
 
 export interface WeatherCatResponse {
+	error: boolean;
+	reason?: string;
 	cache_expiration: string;
 	cda: WeatherCatLocation;
 	httc: WeatherCatLocation;
