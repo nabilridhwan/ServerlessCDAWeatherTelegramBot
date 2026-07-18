@@ -6,7 +6,7 @@ import { isAfter } from 'date-fns';
 export namespace CatStatus {
 	const SINGAPORE_TIME_ZONE = 'Asia/Singapore';
 
-	const CAT_STATUS_API_BASE_URL = 'https://api.andewmoleddd.com/cat1';
+	const CAT_STATUS_API_BASE_URL = 'https://api.andewmole.com/cat1';
 
 	async function requestCatStatusAPI(url: string): Promise<CatStatusAPIResponse> {
 		try {
