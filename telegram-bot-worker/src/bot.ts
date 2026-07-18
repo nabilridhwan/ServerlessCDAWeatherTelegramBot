@@ -11,7 +11,7 @@ import { rule } from './bot/rule';
 import { Db, getRotaForChatId, removeSubscription, upsertRota } from './db/rota';
 import { getNextUpdateDateForRota } from './getNextUpdateDateForRota';
 import { Api, Bot, Context, InlineKeyboard, RawApi } from 'grammy';
-import { WeatherServiceResponse } from './index';
+import { WeatherCatResponse, WeatherServiceResponse } from './index';
 import { format } from 'date-fns/format';
 import { tz } from '@date-fns/tz';
 
@@ -247,57 +247,51 @@ export function registerHandlers(bot: Bot<Context, Api<RawApi>>, db: Db, runtime
 			}),
 		);
 
-		const message = `CAT Status is unavailable as of 16 July 2026. We're working on a fix. Sorry for any inconvenience caused!`;
+		try {
+			const weatherCATResponse = await runtimeEnv.WEATHER_CAT_SERVICE.fetch('https://weather-cat-service/');
+			if (!weatherCATResponse.ok) {
+				throw new Error(`Weather service request failed with status ${weatherCATResponse.status}`);
+			}
 
-		return await ctx.reply(message, {
-			parse_mode: 'HTML',
-		});
+			const readings = (await weatherCATResponse.json()) as WeatherCatResponse;
+			const { cda, httc } = readings;
 
-		// 		try {
-		// 			const weatherCATResponse = await fetchServiceWithTimeout(runtimeEnv.WEATHER_CAT_SERVICE, 'https://weather-cat-service/', 3000);
-		// 			if (!weatherCATResponse.ok) {
-		// 				throw new Error(`Weather service request failed with status ${weatherCATResponse.status}`);
-		// 			}
-		//
-		// 			const readings = (await weatherCATResponse.json()) as WeatherCatResponse;
-		// 			const { cda, httc } = readings;
-		//
-		// 			const message = `📍 Civil Defence Academy
-		// CAT Status: ${cda.catText} ${cda.emoji}
-		// CAT Start On: ${formatDate(new Date(cda.cat_start_on)) ?? 'N/A'}
-		// CAT Ends On: ${formatDate(new Date(cda.cat_end_on)) ?? 'N/A'}
-		//
-		// 📍 Home Team Tactical Centre
-		// CAT Status: ${httc.catText} ${httc.emoji}
-		// CAT Start On: ${formatDate(new Date(httc.cat_start_on)) ?? 'N/A'}
-		// CAT Ends On: ${formatDate(new Date(httc.cat_end_on)) ?? 'N/A'}
-		//
-		// Info last updated: ${formatDate(new Date(cda.update_on)) ?? 'N/A'}
-		// ⚠️ All info is accurate as of the last updated time.
-		//
-		// ℹ️ CAT Status Legend:
-		// 🟢 CAT 3: Outdoor activities are allowed.
-		// 🟡 CAT 2: Outdoor activities to be decided by conducting structure.
-		// 🟠 CAT 1 (Incoming): CAT 1 has been declared and will take effect at the stated time. Prepare to cease outdoor activities.
-		// 🔴 CAT 1: Heavy rain and/or lightning risk. Outdoor activities are NOT ALLOWED.`;
-		//
-		// 			return await ctx.reply(message, {
-		// 				parse_mode: 'HTML',
-		// 			});
-		// 		} catch (error) {
-		// 			console.error(
-		// 				JSON.stringify({
-		// 					event: 'bot_command_catstatus_failed',
-		// 					error: error instanceof Error ? error.message : String(error),
-		// 				}),
-		// 			);
-		//
-		// 			const message = `CAT Status is unavailable right now. Please try again later. Sorry for any inconvenience caused!`;
-		//
-		// 			return await ctx.reply(message, {
-		// 				parse_mode: 'HTML',
-		// 			});
-		// 		}
+			const message = `📍 Civil Defence Academy
+		CAT Status: ${cda.catText} ${cda.emoji}
+		CAT Start On: ${formatDate(new Date(cda.cat_start_on)) ?? 'N/A'}
+		CAT Ends On: ${formatDate(new Date(cda.cat_end_on)) ?? 'N/A'}
+
+		📍 Home Team Tactical Centre
+		CAT Status: ${httc.catText} ${httc.emoji}
+		CAT Start On: ${formatDate(new Date(httc.cat_start_on)) ?? 'N/A'}
+		CAT Ends On: ${formatDate(new Date(httc.cat_end_on)) ?? 'N/A'}
+
+		Info last updated: ${formatDate(new Date(cda.update_on)) ?? 'N/A'}
+		⚠️ All info is accurate as of the last updated time.
+
+		ℹ️ CAT Status Legend:
+		🟢 CAT 3: Outdoor activities are allowed.
+		🟡 CAT 2: Outdoor activities to be decided by conducting structure.
+		🟠 CAT 1 (Incoming): CAT 1 has been declared and will take effect at the stated time. Prepare to cease outdoor activities.
+		🔴 CAT 1: Heavy rain and/or lightning risk. Outdoor activities are NOT ALLOWED.`;
+
+			return await ctx.reply(message, {
+				parse_mode: 'HTML',
+			});
+		} catch (error) {
+			console.error(
+				JSON.stringify({
+					event: 'bot_command_catstatus_failed',
+					error: error instanceof Error ? error.message : String(error),
+				}),
+			);
+
+			const message = `CAT Status is unavailable right now. Please try again later. Sorry for any inconvenience caused!`;
+
+			return await ctx.reply(message, {
+				parse_mode: 'HTML',
+			});
+		}
 	});
 
 	// Settings
